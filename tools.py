@@ -79,7 +79,7 @@ def get_gold_news_newsapi():
         "from": week_ago.strftime('%Y-%m-%d'),
         "to": today.strftime('%Y-%m-%d'),
         "apiKey": api_key,
-        "pageSize": 5
+        "pageSize": 2
     }
     
     response = requests.get(url, params=params,timeout=50)
@@ -129,7 +129,7 @@ def search_perplexity(query: str):
             messages=[
                 {
                     "role": "system",
-                    "content": "You are a financial market analyst specializing in gold/XAUUSD. Provide concise, factual market analysis extracting real-time data about the facts."
+                    "content": "You are a real-time financial data provider. Extract current gold market data and technical levels considering post/pre market hours. Provide precise numerical values. make the response consise and factual and latest."
                 },
                 {
                     "role": "user",

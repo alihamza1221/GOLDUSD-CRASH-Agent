@@ -12,6 +12,9 @@ from agent import (
     run_general_query
 )
 
+# Import cache manager
+from cache_manager import get_gold_data_cached, start_cache_updater
+
 app = FastAPI(
     title="Gold Crash Expert API",
     description="AI Agent API for GOLDUSD crash limit detection and market analysis",
@@ -44,6 +47,14 @@ class LimitResponse(BaseModel):
 
 class QueryResponse(BaseModel):
     answer: str
+
+
+class GoldDataResponse(BaseModel):
+    trend: str
+    lower_limit: str
+    upper_limit: str
+    timestamp: str
+    cache_age_minutes: Optional[int] = None
 
 
 @app.get("/")
@@ -153,6 +164,37 @@ async def post_query(request: QueryRequest):
         raise HTTPException(status_code=500, detail=f"Error processing query: {str(e)}")
 
 
+@app.get("/getGoldData", response_model=GoldDataResponse)
+async def get_gold_data():
+    """
+    Endpoint 5: Get all gold analysis data (trend + limits) from cache.
+    Returns cached data that updates every hour automatically.
+    """
+    try:
+        from datetime import datetime
+        
+        cache_data = get_gold_data_cached()
+        
+        if not cache_data:
+            raise HTTPException(status_code=503, detail="Cache data unavailable")
+        
+        # Calculate cache age
+        cache_time = datetime.fromisoformat(cache_data['timestamp'])
+        age_minutes = int((datetime.now() - cache_time).total_seconds() / 60)
+        
+        return GoldDataResponse(
+            trend=cache_data.get('trend', 'unknown'),
+            lower_limit=cache_data.get('lower_limit', 'N/A'),
+            upper_limit=cache_data.get('upper_limit', 'N/A'),
+            timestamp=cache_data['timestamp'],
+            cache_age_minutes=age_minutes
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching gold data: {str(e)}")
+
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
@@ -165,7 +207,10 @@ if __name__ == "__main__":
     print("   GET  /trend        - Get market trend")
     print("   GET  /lower-limit  - Get lower crash limit")
     print("   GET  /upper-limit  - Get upper crash limit")
+    print("   GET  /getGoldData  - Get all data (cached, updates hourly)")
     print("   POST /query        - Ask custom questions")
+    print("\n🕐 Starting hourly cache updater...")
+    start_cache_updater()
     print("\n🌐 Server running on http://localhost:8000")
     print("📖 API docs available at http://localhost:8000/docs")
     

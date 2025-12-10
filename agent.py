@@ -109,11 +109,11 @@ def call_tools(state: AgentState) -> AgentState:
     # Get search results based on analysis type
     try:
         if state['analysis_type'] == 'trend':
-            search_query = "What is the current gold market trend to continue today? Bullish or bearish or consolidation sentiment?"
+            search_query = "What is the current gold market trend to continue today? Bullish or bearish or consolidation sentiment to maintain today?"
         elif state['analysis_type'] == 'lower_limit':
-            search_query = "What is price if gold fall below that it could further crash? Support level today that gold should respect?"
+            search_query = "What is price if gold fall below that it could further crash today? First Support level that gold should respect today?"
         elif state['analysis_type'] == 'upper_limit':
-            search_query = "What is price if gold rise above that it could face major sell pressure today? Resistance level today that gold should respect?"
+            search_query = "What is price if gold rise above that it could face major sell pressure today? First Resistance level today that gold should respect?"
         else:
             # Extract query from messages
             search_query = state['messages'][-1].content if state['messages'] else "Gold market analysis"

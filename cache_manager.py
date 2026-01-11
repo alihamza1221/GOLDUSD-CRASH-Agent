@@ -14,49 +14,62 @@ def load_cache():
     try:
         if os.path.exists(CACHE_FILE):
             with open(CACHE_FILE, 'r') as f:
-                return json.load(f)
+                data = json.load(f)
+                # Migrate old format to new format if needed
+                if 'symbols' not in data:
+                    # Old format detected, migrate to new format
+                    old_data = data
+                    data = {
+                        "last_updated": old_data.get('timestamp', datetime.now().isoformat()),
+                        "symbols": {
+                            "GOLDUSD": old_data
+                        }
+                    }
+                    save_cache(data)
+                return data
     except Exception as e:
         print(f"Error loading cache: {e}")
-    return None
+    return {"last_updated": None, "symbols": {}}
 
 def save_cache(data):
     """Save data to cache file"""
     try:
         with cache_lock:
+            data['last_updated'] = datetime.now().isoformat()
             with open(CACHE_FILE, 'w') as f:
                 json.dump(data, f, indent=2)
             print(f"✓ Cache updated at {datetime.now().isoformat()}")
     except Exception as e:
         print(f"Error saving cache: {e}")
 
-def is_cache_valid(cache_data):
-    """Check if cache is less than 1 hour old"""
-    if not cache_data or 'timestamp' not in cache_data:
+def is_symbol_cache_valid(symbol_data):
+    """Check if symbol cache is less than 1 hour old"""
+    if not symbol_data or 'timestamp' not in symbol_data:
         return False
     
     try:
-        cache_time = datetime.fromisoformat(cache_data['timestamp'])
+        cache_time = datetime.fromisoformat(symbol_data['timestamp'])
         age = datetime.now() - cache_time
         return age < timedelta(hours=1)
     except:
         return False
 
-def update_gold_data():
-    """Fetch all gold analysis data and cache it"""
+def update_symbol_data(symbol: str):
+    """Fetch all analysis data for a symbol and update cache"""
     print("\n" + "="*60)
-    print(f"🔄 UPDATING GOLD DATA CACHE - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"🔄 UPDATING {symbol} DATA - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("="*60)
     
     try:
-        # Run all analyses
-        print("\n1️⃣ Fetching Trend Analysis...")
-        trend_result = run_trend_analysis()
+        # Run all analyses for the symbol
+        print(f"\n1️⃣ Fetching {symbol} Trend Analysis...")
+        trend_result = run_trend_analysis(symbol)
         
-        print("\n2️⃣ Fetching Lower Limit...")
-        lower_result = run_lower_limit_analysis()
+        print(f"\n2️⃣ Fetching {symbol} Lower Limit...")
+        lower_result = run_lower_limit_analysis(symbol)
         
-        print("\n3️⃣ Fetching Upper Limit...")
-        upper_result = run_upper_limit_analysis()
+        print(f"\n3️⃣ Fetching {symbol} Upper Limit...")
+        upper_result = run_upper_limit_analysis(symbol)
         
         # Extract structured values
         trend = "unknown"
@@ -71,9 +84,10 @@ def update_gold_data():
         if "LIMIT:" in upper_result:
             upper_limit = upper_result.split("LIMIT:")[1].strip().split()[0]
         
-        # Create cache data
-        cache_data = {
+        # Create symbol data
+        symbol_data = {
             "timestamp": datetime.now().isoformat(),
+            "symbol": symbol,
             "trend": trend,
             "lower_limit": lower_limit,
             "upper_limit": upper_limit,
@@ -84,32 +98,67 @@ def update_gold_data():
             }
         }
         
-        # Save to cache
+        # Load existing cache and update symbol
+        cache_data = load_cache()
+        cache_data['symbols'][symbol] = symbol_data
         save_cache(cache_data)
         
         print("\n" + "="*60)
-        print("✅ CACHE UPDATE COMPLETE")
+        print(f"✅ {symbol} CACHE UPDATE COMPLETE")
         print(f"   Trend: {trend}")
         print(f"   Lower Limit: {lower_limit}")
         print(f"   Upper Limit: {upper_limit}")
         print("="*60 + "\n")
         
-        return cache_data
+        return symbol_data
         
     except Exception as e:
-        print(f"❌ Error updating cache: {e}")
+        print(f"❌ Error updating {symbol} cache: {e}")
         return None
 
-def get_gold_data_cached():
-    """Get gold data from cache or update if expired"""
+def update_all_symbols():
+    """Update all symbols in cache"""
     cache_data = load_cache()
+    symbols = list(cache_data.get('symbols', {}).keys())
     
-    if is_cache_valid(cache_data):
-        print(f"✓ Using cached data from {cache_data['timestamp']}")
-        return cache_data
+    # Ensure GOLDUSD is always tracked
+    if 'GOLDUSD' not in symbols:
+        symbols.append('GOLDUSD')
     
-    print("⚠️ Cache expired or missing, updating...")
-    return update_gold_data()
+    print(f"\n📊 Updating {len(symbols)} symbols: {', '.join(symbols)}")
+    
+    for symbol in symbols:
+        update_symbol_data(symbol)
+
+def get_symbol_data_cached(symbol: str = "GOLDUSD"):
+    """Get symbol data from cache or update if expired"""
+    cache_data = load_cache()
+    symbol_data = cache_data.get('symbols', {}).get(symbol)
+    
+    if is_symbol_cache_valid(symbol_data):
+        print(f"✓ Using cached data for {symbol} from {symbol_data['timestamp']}")
+        return symbol_data
+    
+    print(f"⚠️ Cache for {symbol} expired or missing, updating...")
+    return update_symbol_data(symbol)
+
+def get_all_cached_symbols():
+    """Get all cached symbols data"""
+    return load_cache()
+
+def add_symbol_to_cache(symbol: str):
+    """Add a new symbol to cache tracking and fetch its data"""
+    print(f"📈 Adding new symbol: {symbol}")
+    return update_symbol_data(symbol)
+
+# Backward compatibility
+def get_gold_data_cached():
+    """Backward compatible function - Get gold data from cache"""
+    return get_symbol_data_cached("GOLDUSD")
+
+def update_gold_data():
+    """Backward compatible function - Update gold data"""
+    return update_symbol_data("GOLDUSD")
 
 def hourly_cache_updater():
     """Background thread to update cache every hour"""
@@ -117,16 +166,29 @@ def hourly_cache_updater():
     
     while True:
         try:
-            # Wait 1 hour first
+            # Wait 1 hour first before checking (initial update is done by start_cache_updater)
+            time.sleep(3600)  # 3600 seconds = 1 hour
             
             # Then check if update is needed
             cache_data = load_cache()
-            if not is_cache_valid(cache_data):
-                print("⏰ Hourly update: Cache expired, updating...")
-                update_gold_data()
+            symbols = list(cache_data.get('symbols', {}).keys())
+            
+            # Ensure GOLDUSD is always tracked
+            if not symbols:
+                symbols = ['GOLDUSD']
+            
+            needs_update = False
+            for symbol in symbols:
+                symbol_data = cache_data.get('symbols', {}).get(symbol)
+                if not is_symbol_cache_valid(symbol_data):
+                    needs_update = True
+                    break
+            
+            if needs_update:
+                print("⏰ Hourly update: Some symbols expired, updating all...")
+                update_all_symbols()
             else:
-                print("⏰ Hourly check: Cache still valid, skipping update")
-            time.sleep(3600)  # 3600 seconds = 1 hour
+                print("⏰ Hourly check: All symbols still valid, skipping update")
 
         except Exception as e:
             print(f"Error in hourly updater: {e}")
@@ -139,6 +201,15 @@ def start_cache_updater():
     
     # Do initial update if cache doesn't exist or is expired
     cache_data = load_cache()
-    if not is_cache_valid(cache_data):
-        print("📊 Performing initial cache update...")
-        update_gold_data()
+    symbols = list(cache_data.get('symbols', {}).keys())
+    
+    if not symbols:
+        print("📊*** Performing initial cache update for GOLDUSD ***")
+        update_symbol_data("GOLDUSD")
+    else:
+        # Check if any symbol needs update
+        for symbol in symbols:
+            symbol_data = cache_data.get('symbols', {}).get(symbol)
+            if not is_symbol_cache_valid(symbol_data):
+                print(f"📊 ******Cache for {symbol} expired, updating...")
+                update_symbol_data(symbol)
